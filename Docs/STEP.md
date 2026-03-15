@@ -10,12 +10,12 @@ ASTRO-QUICK-COPY:
   "name": "ETH",
   "openPosition": "10",
   "closePosition": "-10",
-  "maxTradeUSDT": "1000",
+  "maxTradeUSDT": "3000",
   "buyEx": "binance",
   "sellEx": "binance",
   "leverage": "4",
   "minNotional": "20",
-  "maxNotional": "50",
+  "maxNotional": "60",
   "startTime": "0",
   "disableClose": false,
   "disableOpen": false,
@@ -47,8 +47,7 @@ ASTRO-QUICK-COPY:
       "position": 0,
       "limit": 0
     }
-  ],
-  "maxTradeUSDTMAX": 3000
+  ]
 }
 ```
 
@@ -62,12 +61,12 @@ ASTRO-QUICK-COPY:
   "name": "BTC-USDC",
   "openPosition": "0",
   "closePosition": "Infinity",
-  "maxTradeUSDT": "1000",
+  "maxTradeUSDT": "5000",
   "buyEx": "binance",
   "sellEx": "binance",
   "leverage": "4",
-  "minNotional": "8",
-  "maxNotional": "8",
+  "minNotional": "20",
+  "maxNotional": "60",
   "startTime": "0",
   "rateMultiply": "1",
   "disableClose": false,
@@ -116,8 +115,7 @@ ASTRO-QUICK-COPY:
       "position": 72500,
       "limit": 0
     }
-  ],
-  "maxTradeUSDTMAX": 5000
+  ]
 }
 ```
 
