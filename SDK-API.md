@@ -1,6 +1,6 @@
 # Astro SDK 接口文档
 
-本文档主要说明 `ASTRO SDK API` 相关接口的调用方式。
+本文档主要说明 `ASTRO SDK API` 相关接口的调用方式。 代码参考 [demo](./sdk-demo.js)
 
 ## 0. 设置API KEY
 // API Key - 需要先在账户->开发者代码通过「set api-key ***」设置API KEY, 随机数长度12-32，仅数字和大小写字母
