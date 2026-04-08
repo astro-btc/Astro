@@ -9,15 +9,19 @@
 ## 1. 接口概览
 
 - 请求方式：`POST`
-- 接口地址：`/api/config/sdk-update-pair`
-- 示例完整地址：`https://127.0.0.1:12345/api/config/sdk-update-pair`
-- 支持动作：`list`、`add`、`update`、`delete`
+- Pair 管理接口：`/api/config/sdk-update-pair`
+- Message 发送接口：`/api/config/sdk-send-message`
+- Pair 接口示例完整地址：`https://127.0.0.1:12345/api/config/sdk-update-pair`
+- Message 接口示例完整地址：`https://127.0.0.1:12345/api/config/sdk-send-message`
+- Pair 接口支持动作：`list`、`add`、`update`、`delete`
+- Message 接口支持类型：`warning`、`notice`
 
 说明：
 
-- 这是一个统一入口接口，通过请求体中的 `action` 区分具体操作。
+- `sdk-update-pair` 是统一入口接口，通过请求体中的 `action` 区分具体操作。
 - `list` 不需要传 `pair`。
 - `add`、`update`、`delete` 需要传 `pair` 对象。
+- `sdk-send-message` 用于发送文本消息，通过请求体中的 `type` 区分 `warning` 和 `notice`。
 
 ## 2. 访问限制
 
@@ -102,6 +106,8 @@
 - `add`：`{"action":"add","pair":{...}}`
 - `update`：`{"action":"update","pair":{...}}`
 - `delete`：`{"action":"delete","pair":{...}}`
+- `warning`：`{"type":"warning","text":"..."}` 
+- `notice`：`{"type":"notice","text":"..."}`
 
 签名消息使用如下 canonical message：
 
@@ -114,7 +120,7 @@ ${timestamp}\n${nonce}\nPOST\n${apiPath}\n${rawBody}
 - `timestamp`：请求头中的 `x-timestamp`
 - `nonce`：请求头中的 `x-nonce`
 - `POST`：当前接口固定为 `POST`
-- `apiPath`：固定为 `/api/config/sdk-update-pair`
+- `apiPath`：当前请求的接口路径，例如 `/api/config/sdk-update-pair` 或 `/api/config/sdk-send-message`
 - `rawBody`：请求体原始 JSON 字符串，签名前后必须完全一致
 
 注意：
@@ -143,9 +149,9 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 }
 ```
 
-## 4. 通用请求/响应格式
+## 4. 请求/响应格式
 
-### 4.1 请求体
+### 4.1 Pair 接口请求体
 
 统一结构：
 
@@ -161,7 +167,24 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 - 当 `action = list` 时，不需要 `pair`
 - 当 `action = add/update/delete` 时，必须传 `pair`
 
-### 4.2 成功响应
+### 4.2 Message 接口请求体
+
+统一结构：
+
+```json
+{
+  "type": "warning | notice",
+  "text": "要发送的字符串"
+}
+```
+
+说明：
+
+- `type = warning` 时，服务端会写入：`[uiw]-` + `text`
+- `type = notice` 时，服务端会写入：`[uin]-` + `text`
+- `text` 必须是非空字符串，服务端会做 `trim()`
+
+### 4.3 成功响应
 
 成功时业务码为：
 
@@ -173,7 +196,7 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 
 不同动作的 `data` 不同，下面分别说明。
 
-### 4.3 失败响应
+### 4.4 失败响应
 
 常见失败格式：
 
@@ -384,6 +407,69 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 }
 ```
 
+### 6.5 发送 Warning/Notice 文本
+
+用于向服务端发送一条文本消息。
+
+服务端收到后会自动转换为：
+
+- `warning` -> `addWarning('[uiw]-' + text)`
+- `notice` -> `addWarning('[uin]-' + text)`
+
+Warning 请求体示例：
+
+```json
+{
+  "type": "warning",
+  "text": "「测试」⚠️飞书报警消息"
+}
+```
+
+Notice 请求体示例：
+
+```json
+{
+  "type": "notice",
+  "text": "「测试」飞书通知消息"
+}
+```
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "data": null,
+  "message": "warning accepted"
+}
+```
+
+或：
+
+```json
+{
+  "code": 0,
+  "data": null,
+  "message": "notice accepted"
+}
+```
+
+失败示例：
+
+```json
+{
+  "code": -1,
+  "message": "Invalid type parameter."
+}
+```
+
+```json
+{
+  "code": -1,
+  "message": "bad text param: must be a non-empty string"
+}
+```
+
 ## 7. 常见错误码与状态
 
 | HTTP 状态 | 业务码 | 场景 |
@@ -403,9 +489,4 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 3. 再次调用 `list` 获取新增后的 `pair.id`
 4. 调用 `update` 更新该 `pair`
 5. 调用 `delete` 删除该 `pair`
-
-如果你希望，我还可以继续把这份文档补成：
-
-- `curl` 调用示例版
-- 前端/Node.js SDK 示例版
-- 更偏给客户看的精简中文版
+6. 如需推送消息，调用 `sdk-send-message` 发送 `warning` 或 `notice`
