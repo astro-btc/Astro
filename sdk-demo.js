@@ -3,6 +3,7 @@ const http = require('http');
 const https = require('https');
 
 const ACTIONS_WITH_PAIR = new Set(['add', 'update', 'delete'])
+const MESSAGE_TYPES = new Set(['warning', 'notice'])
 
 function generateNonce() {
     return crypto.randomBytes(24).toString('base64')
@@ -22,6 +23,13 @@ const buildSimplePayload = (action, pair) => {
         payload.pair = pair
     }
     return payload
+}
+
+const buildMessagePayload = (type, text) => {
+    return {
+        type,
+        text
+    }
 }
 
 const buildCanonicalMessage = ({ method = 'POST', path = '', nonce, ts, rawBody = '' }) => {
@@ -49,7 +57,8 @@ const API_KEY = process.env.ASTRO_API_KEY || '***'; // 请替换为实际的 API
 // 服务器地址
 const BASE_URL = '127.0.0.1'; // 请替换为实际的服务器地址
 const PORT = 8443;
-const API_PATH = '/api/config/sdk-update-pair';
+const PAIR_API_PATH = '/api/config/sdk-update-pair';
+const MESSAGE_API_PATH = '/api/config/sdk-send-message';
 
 // 默认使用 HTTPS
 const USE_HTTPS = true;
@@ -78,6 +87,11 @@ const pair = {
     "minNotional": "12",
     "maxNotional": "30",
 };
+
+const messageDemoPayload = {
+    warning: '「测试」⚠️ASTRO SDK API报警消息',
+    notice: '「测试」ASTRO SDK API通知消息'
+}
 
 function createUpdatedPair(addedPair) {
     return {
@@ -145,12 +159,11 @@ function buildLogSafeHeaders(headers) {
     }
 }
 
-function sendRequest(action, pairData, stepLabel) {
+function sendSignedRequest(apiPath, payload, stepLabel, summary = {}) {
     const timestamp = Date.now();
     const nonce = generateNonce();
-    const payload = buildSimplePayload(action, pairData);
     const requestBody = JSON.stringify(payload);
-    const sign = simpleSignRawBody(API_KEY, nonce, timestamp, API_PATH, requestBody, 'POST');
+    const sign = simpleSignRawBody(API_KEY, nonce, timestamp, apiPath, requestBody, 'POST');
 
     const headers = {
         'Content-Type': 'application/json',
@@ -163,15 +176,20 @@ function sendRequest(action, pairData, stepLabel) {
     const options = {
         hostname: BASE_URL,
         port: PORT,
-        path: API_PATH,
+        path: apiPath,
         method: 'POST',
         headers
     };
 
     printDivider(`[${stepLabel}] 请求开始`);
     console.log('Protocol:', PROTOCOL.toUpperCase());
-    console.log('URL:', `${PROTOCOL}://${BASE_URL}:${PORT}${API_PATH}`);
-    console.log('Action:', action);
+    console.log('URL:', `${PROTOCOL}://${BASE_URL}:${PORT}${apiPath}`);
+    if (summary.action) {
+        console.log('Action:', summary.action);
+    }
+    if (summary.type) {
+        console.log('Type:', summary.type);
+    }
     console.log('Timestamp:', timestamp);
     printJson('Headers:', buildLogSafeHeaders(headers));
     printJson('Body:', payload);
@@ -228,9 +246,26 @@ function sendRequest(action, pairData, stepLabel) {
     });
 }
 
+function sendRequest(action, pairData, stepLabel) {
+    const payload = buildSimplePayload(action, pairData);
+    return sendSignedRequest(PAIR_API_PATH, payload, stepLabel, { action })
+}
+
+function sendMessageRequest(type, text, stepLabel) {
+    if (!MESSAGE_TYPES.has(type)) {
+        throw new Error(`无效的消息类型: ${type}`);
+    }
+    if (typeof text !== 'string' || !text.trim()) {
+        throw new Error('text 必须是非空字符串');
+    }
+
+    const payload = buildMessagePayload(type, text);
+    return sendSignedRequest(MESSAGE_API_PATH, payload, stepLabel, { type })
+}
+
 async function runDemoFlow() {
-    printDivider('Demo Flow 启动');
-    console.log(`目标接口: ${PROTOCOL}://${BASE_URL}:${PORT}${API_PATH}`);
+    printDivider('Pair Demo Flow 启动');
+    console.log(`目标接口: ${PROTOCOL}://${BASE_URL}:${PORT}${PAIR_API_PATH}`);
 
     printJson('Add Pair 模板:', summarizePair(pair));
 
@@ -247,7 +282,8 @@ async function runDemoFlow() {
     assertSuccess('Step 2 - add', addResult);
     console.log('Step 2 结果: add 请求已提交成功');
 
-    await sleep(3000);
+    // 新增pair会导致astro-core进程重启，因此此动作完成后需要等待3秒再执行其他动作。
+    await sleep(4000);
 
     const listAfterAdd = await sendRequest('list', null, 'Step 3 - list');
     assertSuccess('Step 3 - list', listAfterAdd);
@@ -265,8 +301,6 @@ async function runDemoFlow() {
     assertSuccess('Step 4 - updatePair', updateResult);
     console.log('Step 4 结果: update 请求已提交成功');
 
-    await sleep(3000);
-
     const listAfterUpdate = await sendRequest('list', null, 'Step 5 - list');
     assertSuccess('Step 5 - list', listAfterUpdate);
     const afterUpdateList = listAfterUpdate.json?.data || [];
@@ -282,8 +316,6 @@ async function runDemoFlow() {
     assertSuccess('Step 6 - delete', deleteResult);
     console.log('Step 6 结果: delete 请求已提交成功');
 
-    await sleep(3000);
-
     const listAfterDelete = await sendRequest('list', null, 'Step 7 - list');
     assertSuccess('Step 7 - list', listAfterDelete);
     const afterDeleteList = listAfterDelete.json?.data || [];
@@ -294,14 +326,39 @@ async function runDemoFlow() {
     }
     console.log('Step 7 校验成功: 已确认目标 pair 不在列表中');
 
-    printDivider('Demo Flow 完成');
+    printDivider('Pair Demo Flow 完成');
     console.log('完整流程执行成功: list -> add -> list -> updatePair -> list -> delete -> list');
     console.log('本次演示 pair id:', addedPair.id);
     console.log('本次演示 pair name:', addedPair.name);
 }
 
+async function runMessageDemoFlow() {
+    printDivider('Message Demo Flow 启动');
+    console.log(`目标接口: ${PROTOCOL}://${BASE_URL}:${PORT}${MESSAGE_API_PATH}`);
+
+    const warningText = messageDemoPayload.warning
+    printJson('Message Step 1 请求体:', buildMessagePayload('warning', warningText));
+    const warningResult = await sendMessageRequest('warning', warningText, 'Message Step 1 - warning');
+    assertSuccess('Message Step 1 - warning', warningResult);
+    console.log('Message Step 1 结果: warning 文本已提交成功');
+
+    const noticeText = messageDemoPayload.notice
+    printJson('Message Step 2 请求体:', buildMessagePayload('notice', noticeText));
+    const noticeResult = await sendMessageRequest('notice', noticeText, 'Message Step 2 - notice');
+    assertSuccess('Message Step 2 - notice', noticeResult);
+    console.log('Message Step 2 结果: notice 文本已提交成功');
+
+    printDivider('Message Demo Flow 完成');
+    console.log('完整流程执行成功: warning -> notice');
+}
+
+async function runAllDemos() {
+    await runDemoFlow();
+    await runMessageDemoFlow();
+}
+
 if (require.main === module) {
-    runDemoFlow().catch((error) => {
+    runAllDemos().catch((error) => {
         printDivider('Demo Flow 失败');
         console.error(error?.stack || error?.message || error);
         process.exitCode = 1;
@@ -310,8 +367,12 @@ if (require.main === module) {
 
 module.exports = {
     sendRequest,
+    sendMessageRequest,
     runDemoFlow,
+    runMessageDemoFlow,
+    runAllDemos,
     generateNonce,
     pair,
-    buildSimplePayload
+    buildSimplePayload,
+    buildMessagePayload
 };
