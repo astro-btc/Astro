@@ -210,32 +210,22 @@ install_docker() {
     log_info "Docker安装完成 ✓"
 }
 
-# 生成随机字符串
+# 生成随机字符串（基于 /dev/urandom，加密安全）
 generate_random_string() {
     local length=$1
-    local chars="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-    local result=""
-    
-    for i in $(seq 1 $length); do
-        result="${result}${chars:RANDOM%${#chars}:1}"
-    done
-    
-    echo "$result"
+    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$length"
 }
 
-# 生成Google Authenticator密钥
+# 生成Google Authenticator密钥（Base32，基于 /dev/urandom）
 generate_2fa_secret() {
-    # 生成真正的Base32编码密钥
-    # Base32字符集: A-Z, 2-7 (共32个字符)
-    local base32_chars="ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-    local secret=""
-    
-    # 生成32位Base32密钥
-    for i in $(seq 1 32); do
-        secret="${secret}${base32_chars:RANDOM%32:1}"
-    done
-    
-    echo "$secret"
+    LC_ALL=C tr -dc 'A-Z2-7' </dev/urandom | head -c 32
+}
+
+# 生成管理员登录密码（前7位随机字母数字 + 末位 @）
+generate_security_code() {
+    local prefix
+    prefix=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 7)
+    echo "${prefix}@"
 }
 
 # IP验证函数
@@ -454,6 +444,7 @@ main() {
     ADMIN_PREFIX=$(generate_random_string 10)
     ADMIN_2FA_SECRET=$(generate_2fa_secret)
     ADMIN_JWT_SECRET=$(generate_random_string 32)
+    ADMIN_SECURITY_CODE=$(generate_security_code)
     
     log_info "配置生成完成 ✓"
     
@@ -467,7 +458,7 @@ main() {
 PORT=8443
 ALLOWED_DOMAIN=$SERVER_IP
 ADMIN_PREFIX=$ADMIN_PREFIX
-ADMIN_SECURITY_CODE=Astro321@
+ADMIN_SECURITY_CODE=$ADMIN_SECURITY_CODE
 ADMIN_2FA_SECRET=$ADMIN_2FA_SECRET
 ADMIN_JWT_SECRET=$ADMIN_JWT_SECRET
 ADMIN_JWT_EXPIRESIN=240h
@@ -478,7 +469,7 @@ EOF
     export PORT=8443
     export ALLOWED_DOMAIN="$SERVER_IP"
     export ADMIN_PREFIX="$ADMIN_PREFIX"
-    export ADMIN_SECURITY_CODE="Astro321@"
+    export ADMIN_SECURITY_CODE="$ADMIN_SECURITY_CODE"
     export ADMIN_2FA_SECRET="$ADMIN_2FA_SECRET"
     export ADMIN_JWT_SECRET="$ADMIN_JWT_SECRET"
     export ADMIN_JWT_EXPIRESIN="240h"
