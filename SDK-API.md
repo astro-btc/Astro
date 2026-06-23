@@ -231,7 +231,7 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 | `buyEx` | `string` | 是 | 买入交易所 |
 | `sellEx` | `string` | 是 | 卖出交易所 |
 | `startTime` | `string` | 否 | 启动时间 |
-| `minNotional` | `string` | 否 | 最小名义价值，若传则要求 `>= 8` |
+| `minNotional` | `string` | 否 | 最小名义价值，若传则要求 `>= 6` |
 | `maxNotional` | `string` | 否 | 最大名义价值，若传则要求 `>= minNotional` |
 | `stopLoss` | `string` | 否 | 止损参数 |
 | `rateMultiply` | `string/number` | 否 | 额外倍率参数 |
