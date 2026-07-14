@@ -4,14 +4,14 @@
 ### [Astro安全相关-必读](./SECURITY.md) 
 
 套利策略，产品使用群 \
-https://t.me/astro_discuss
+https://telegram.me/astro_discuss
 
 行情工具 \
 https://pulse.astro-btc.xyz/ \
 https://astro-btc.github.io/Astro-Perps/?coin=ETH
 
 实时资讯, 上新，费率调整等 \
-https://t.me/astro_realtime_news
+https://telegram.me/astro_realtime_news
 
 --------------------------------
 
