@@ -419,7 +419,7 @@ EOF
     
     # 拉取Docker镜像
     log_info "拉取Docker镜像..."
-    docker pull mydocker788/astro:latest
+    docker pull astrobtc/astro:latest
     
     # 运行Docker容器
     log_info "启动Astro容器..."
@@ -432,7 +432,7 @@ EOF
         --health-retries=3 \
         -p 12345:12345 \
         -v "$(pwd)/astro-server/.env:/home/ubuntu/astro-server/.env" \
-        mydocker788/astro:latest \
+        astrobtc/astro:latest \
         bash -c "
             echo '=== 容器启动，恢复PM2进程 ==='
             echo '时间: $(date)'
