@@ -28,7 +28,7 @@ https://telegram.me/astro_realtime_news
 
 ### 2. 执行一键安装脚本 (需确认公网IP地址)， 安装完成后请使用最新版Chrome浏览器打开（其他浏览器会有兼容性问题）
 ```
-curl -L https://raw.githubusercontent.com/astro-btc/Astro/refs/heads/main/install.sh | sudo bash -
+curl -L https://raw.githubusercontent.com/astro-btc/Astro/refs/heads/main/install-new.sh | sudo bash -
 ```
 
 ### 3. astro-server/.env 文件字段说明
