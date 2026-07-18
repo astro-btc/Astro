@@ -330,6 +330,14 @@ verify_restart_configuration() {
     else
         log_warn "配置文件映射未正确配置"
     fi
+
+    # 必须以容器的实际运行用户验证，而不是只看宿主机上的权限位。
+    if docker exec astro-app test -w /home/ubuntu/astro-server/.env; then
+        log_info "容器运行用户可以写入配置文件 ✓"
+    else
+        log_error "容器运行用户无法写入配置文件"
+        exit 1
+    fi
     
     # 验证容器启动命令
     if docker inspect astro-app --format='{{json .Config.Cmd}}' 2>/dev/null | grep -q "pm2-runtime"; then
@@ -413,6 +421,18 @@ EOF
     # 拉取Docker镜像
     log_info "拉取Docker镜像: $ASTRO_IMAGE"
     docker pull "$ASTRO_IMAGE"
+
+    # 安装脚本以 root 运行，但容器以非 root 用户运行。单文件 bind mount 会保留
+    # 宿主机的 UID/GID；将 .env 交给镜像中的运行用户，否则服务只能读取、无法修改配置。
+    CONTAINER_UID=$(docker run --rm --entrypoint id "$ASTRO_IMAGE" -u)
+    CONTAINER_GID=$(docker run --rm --entrypoint id "$ASTRO_IMAGE" -g)
+    if [[ ! "$CONTAINER_UID" =~ ^[0-9]+$ || ! "$CONTAINER_GID" =~ ^[0-9]+$ ]]; then
+        log_error "无法确定容器运行用户 UID/GID"
+        exit 1
+    fi
+    chown "${CONTAINER_UID}:${CONTAINER_GID}" astro-server/.env
+    chmod 600 astro-server/.env
+    log_info "配置文件权限已设置为容器运行用户 ${CONTAINER_UID}:${CONTAINER_GID}"
     
     # 运行Docker容器
     log_info "启动Astro容器..."
