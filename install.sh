@@ -12,6 +12,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+DEFAULT_ASTRO_IMAGE="astrobtc/astro:latest"
+ASTRO_IMAGE="${ASTRO_IMAGE:-$DEFAULT_ASTRO_IMAGE}"
+
 # 日志函数
 log_info() {
     echo -e "${GREEN}[ASTRO-INSTALL]${NC} $1"
@@ -306,7 +309,8 @@ verify_restart_configuration() {
     fi
     
     # 验证容器健康检查
-    if docker inspect astro-app --format='{{.Config.Healthcheck.Test}}' 2>/dev/null | grep -q "pm2"; then
+    healthcheck_test=$(docker inspect astro-app --format='{{json .Config.Healthcheck.Test}}' 2>/dev/null || true)
+    if [ -n "$healthcheck_test" ] && [ "$healthcheck_test" != "null" ]; then
         log_info "容器健康检查已配置 ✓"
     else
         log_warn "容器健康检查未正确配置"
@@ -326,12 +330,20 @@ verify_restart_configuration() {
     else
         log_warn "配置文件映射未正确配置"
     fi
+
+    # 必须以容器的实际运行用户验证，而不是只看宿主机上的权限位。
+    if docker exec astro-app test -w /home/ubuntu/astro-server/.env; then
+        log_info "容器运行用户可以写入配置文件 ✓"
+    else
+        log_error "容器运行用户无法写入配置文件"
+        exit 1
+    fi
     
     # 验证容器启动命令
-    if docker inspect astro-app --format='{{.Config.Cmd}}' 2>/dev/null | grep -q "pm2 resurrect"; then
-        log_info "容器启动命令已配置PM2恢复 ✓"
+    if docker inspect astro-app --format='{{json .Config.Cmd}}' 2>/dev/null | grep -q "pm2-runtime"; then
+        log_info "容器已使用镜像内置的 pm2-runtime 启动 ✓"
     else
-        log_warn "容器启动命令未包含PM2恢复逻辑"
+        log_warn "容器未使用镜像内置的 pm2-runtime 启动"
     fi
     
     log_info "重启配置验证完成"
@@ -407,44 +419,29 @@ EOF
     docker rm astro-app 2>/dev/null || true
     
     # 拉取Docker镜像
-    log_info "拉取Docker镜像..."
-    docker pull astrobtc/astro:latest
+    log_info "拉取Docker镜像: $ASTRO_IMAGE"
+    docker pull "$ASTRO_IMAGE"
+
+    # 安装脚本以 root 运行，但容器以非 root 用户运行。单文件 bind mount 会保留
+    # 宿主机的 UID/GID；将 .env 交给镜像中的运行用户，否则服务只能读取、无法修改配置。
+    CONTAINER_UID=$(docker run --rm --entrypoint id "$ASTRO_IMAGE" -u)
+    CONTAINER_GID=$(docker run --rm --entrypoint id "$ASTRO_IMAGE" -g)
+    if [[ ! "$CONTAINER_UID" =~ ^[0-9]+$ || ! "$CONTAINER_GID" =~ ^[0-9]+$ ]]; then
+        log_error "无法确定容器运行用户 UID/GID"
+        exit 1
+    fi
+    chown "${CONTAINER_UID}:${CONTAINER_GID}" astro-server/.env
+    chmod 600 astro-server/.env
+    log_info "配置文件权限已设置为容器运行用户 ${CONTAINER_UID}:${CONTAINER_GID}"
     
     # 运行Docker容器
     log_info "启动Astro容器..."
     docker run -d \
         --name astro-app \
         --restart always \
-        --health-cmd="pm2 status && pm2 list | grep -q online" \
-        --health-interval=30s \
-        --health-timeout=10s \
-        --health-retries=3 \
         -p 8443:8443 \
         -v "$(pwd)/astro-server/.env:/home/ubuntu/astro-server/.env" \
-        astrobtc/astro:latest \
-        bash -c "
-            echo '=== 容器启动，恢复PM2进程 ==='
-            echo '时间: $(date)'
-            
-            # 等待5秒确保容器完全启动
-            sleep 5
-            
-            # 恢复PM2进程
-            echo '执行 pm2 resurrect...'
-            pm2 resurrect
-            
-            # 等待恢复完成
-            sleep 3
-            
-            # 检查PM2状态
-            echo '检查PM2状态...'
-            pm2 status
-            
-            echo '=== PM2恢复完成 ==='
-            
-            # 保持容器运行
-            tail -f /dev/null
-        "
+        "$ASTRO_IMAGE"
     
     # 等待容器启动
     log_info "等待容器启动..."
@@ -459,24 +456,36 @@ EOF
         exit 1
     fi
     
-    # 等待PM2进程恢复完成
-    log_info "等待PM2进程恢复完成..."
-    sleep 10
-    
-    # 检查pm2状态
-    if docker exec astro-app pm2 status &>/dev/null && docker exec astro-app pm2 list | grep -q "online"; then
-        log_info "pm2进程启动成功 ✓"
-        
-        # 显示pm2状态
-        echo -e "\n${BLUE}PM2 进程状态:${NC}"
-        docker exec astro-app pm2 status
-        echo ""
-    else
-        log_warn "pm2状态检查失败，查看启动日志..."
+    # 等待镜像内置健康检查通过
+    log_info "等待 Astro 服务健康检查通过..."
+    container_healthy=false
+    for _ in $(seq 1 60); do
+        container_status=$(docker inspect astro-app --format='{{.State.Status}}' 2>/dev/null || true)
+        health_status=$(docker inspect astro-app --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null || true)
+
+        if [ "$health_status" = "healthy" ]; then
+            container_healthy=true
+            break
+        fi
+
+        if [ "$container_status" = "exited" ] || [ "$container_status" = "dead" ] || [ "$health_status" = "unhealthy" ]; then
+            break
+        fi
+
+        sleep 2
+    done
+
+    if [ "$container_healthy" != "true" ]; then
+        log_error "Astro 服务未能通过健康检查"
         echo -e "\n${YELLOW}=== 容器启动日志 ===${NC}"
-        docker logs --tail 30 astro-app
-        echo ""
+        docker logs --tail 100 astro-app
+        exit 1
     fi
+
+    log_info "Astro 服务启动成功 ✓"
+    echo -e "\n${BLUE}PM2 进程状态:${NC}"
+    docker exec astro-app pm2 status || true
+    echo ""
     
     # 验证重启配置
     verify_restart_configuration
