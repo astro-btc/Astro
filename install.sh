@@ -307,6 +307,14 @@ verify_restart_configuration() {
     else
         log_warn "容器重启策略异常: $restart_policy"
     fi
+
+    # 检查容器日志轮转配置（防止 *-json.log 无限增长撑爆磁盘）
+    log_max_size=$(docker inspect astro-app --format='{{index .HostConfig.LogConfig.Config "max-size"}}' 2>/dev/null)
+    if [ -n "$log_max_size" ] && [ "$log_max_size" != "0" ]; then
+        log_info "容器日志轮转已配置 (max-size=$log_max_size) ✓"
+    else
+        log_warn "容器日志轮转未配置，日志文件可能无限增长"
+    fi
     
     # 验证容器健康检查
     healthcheck_test=$(docker inspect astro-app --format='{{json .Config.Healthcheck.Test}}' 2>/dev/null || true)
@@ -435,10 +443,16 @@ EOF
     log_info "配置文件权限已设置为容器运行用户 ${CONTAINER_UID}:${CONTAINER_GID}"
     
     # 运行Docker容器
+    # 默认的 json-file 日志驱动不做轮转（max-size 默认为 -1，即无限制），
+    # 长期运行会把 /var/lib/docker/containers/<id>/<id>-json.log 写到几十GB。
+    # 这里显式限制：单个日志文件最大 20MB，最多保留 3 个（总量约 60MB）。
     log_info "启动Astro容器..."
     docker run -d \
         --name astro-app \
         --restart always \
+        --log-driver json-file \
+        --log-opt max-size=20m \
+        --log-opt max-file=3 \
         -p 8443:8443 \
         -v "$(pwd)/astro-server/.env:/home/ubuntu/astro-server/.env" \
         "$ASTRO_IMAGE"
