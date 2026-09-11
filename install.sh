@@ -453,7 +453,7 @@ EOF
         --log-driver json-file \
         --log-opt max-size=20m \
         --log-opt max-file=3 \
-        -p 8443:8443 \
+        --network host \
         -v "$(pwd)/astro-server/.env:/home/ubuntu/astro-server/.env" \
         "$ASTRO_IMAGE"
     
