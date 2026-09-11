@@ -166,13 +166,6 @@ generate_2fa_secret() {
     LC_ALL=C tr -dc 'A-Z2-7' </dev/urandom | head -c 32
 }
 
-# 生成管理员登录密码（前7位随机字母数字 + 末位 @）
-generate_security_code() {
-    local prefix
-    prefix=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 7)
-    echo "${prefix}@"
-}
-
 # IP验证函数
 validate_ip() {
     local ip=$1
@@ -390,7 +383,7 @@ main() {
     ADMIN_PREFIX=$(generate_random_string 10)
     ADMIN_2FA_SECRET=$(generate_2fa_secret)
     ADMIN_JWT_SECRET=$(generate_random_string 32)
-    ADMIN_SECURITY_CODE=$(generate_security_code)
+    ADMIN_SECURITY_CODE=$(generate_random_string 8)
     
     log_info "配置生成完成 ✓"
     
@@ -443,6 +436,8 @@ EOF
     log_info "配置文件权限已设置为容器运行用户 ${CONTAINER_UID}:${CONTAINER_GID}"
     
     # 运行Docker容器
+    # Linux 单实例部署共享宿主机网络，省去 Docker 网桥和 NAT。
+    # 服务直接监听宿主机 8443 端口；host 模式不使用 -p 端口映射。
     # 默认的 json-file 日志驱动不做轮转（max-size 默认为 -1，即无限制），
     # 长期运行会把 /var/lib/docker/containers/<id>/<id>-json.log 写到几十GB。
     # 这里显式限制：单个日志文件最大 20MB，最多保留 3 个（总量约 60MB）。
