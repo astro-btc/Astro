@@ -14,8 +14,10 @@
 - 请求方式：`POST`
 - Pair 管理接口：`/xxx/api/config/sdk-update-pair`
 - Message 发送接口：`/xxx/api/config/sdk-send-message`
+- Profit 查询接口：`/xxx/api/config/sdk-get-profit`
 - Pair 接口示例完整地址：`https://127.0.0.1:12345/xxx/api/config/sdk-update-pair`
 - Message 接口示例完整地址：`https://127.0.0.1:12345/xxx/api/config/sdk-send-message`
+- Profit 接口示例完整地址：`https://127.0.0.1:12345/xxx/api/config/sdk-get-profit`
 - Pair 接口支持动作：`list`、`add`、`update`、`delete`
 - Message 接口支持类型：`warning`、`notice`
 
@@ -27,6 +29,8 @@
 - `list` 不需要传 `pair`。
 - `add`、`update`、`delete` 需要传 `pair` 对象。
 - `sdk-send-message` 用于发送文本消息，通过请求体中的 `type` 区分 `warning` 和 `notice`。
+- `sdk-get-profit` 用于查询利润汇总和分页明细，查询参数放在 JSON 请求体中，不需要 `action`。
+- SDK 接口使用下述 API Key 签名，无需登录 Cookie、CSRF 或设备证明。
 
 ## 2. 访问限制
 
@@ -113,6 +117,7 @@
 - `delete`：`{"action":"delete","pair":{...}}`
 - `warning`：`{"type":"warning","text":"..."}` 
 - `notice`：`{"type":"notice","text":"..."}`
+- 利润查询：`{"pageSize":200,"page":1,"year":2026,"month":10}`，也可以用 `{}` 查询当前月
 
 签名消息使用如下 canonical message：
 
@@ -125,7 +130,7 @@ ${timestamp}\n${nonce}\nPOST\n${apiPath}\n${rawBody}
 - `timestamp`：请求头中的 `x-timestamp`
 - `nonce`：请求头中的 `x-nonce`
 - `POST`：当前接口固定为 `POST`
-- `apiPath`：当前请求的接口路径，例如 `/api/config/sdk-update-pair` 或 `/api/config/sdk-send-message`
+- `apiPath`：完整请求路径，必须包含实际的 `ADMIN_PREFIX`，例如 `/xxx/api/config/sdk-update-pair`、`/xxx/api/config/sdk-send-message` 或 `/xxx/api/config/sdk-get-profit`；如有查询字符串也必须原样包含
 - `rawBody`：请求体原始 JSON 字符串，签名前后必须完全一致
 
 注意：
@@ -228,8 +233,12 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 | `disableClose` | `boolean` | 是 | 是否禁平仓 |
 | `maxTradeUSDT` | `string` | 是 | 最大交易额度，要求 `>= 10` |
 | `leverage` | `string` | 是 | 杠杆 |
+| `independentLeverageSide` | `string` | 否 | 单腿合约杠杆覆盖侧，`a` 或 `b`；必须与 `independentLeverage` 同时传入，且所选腿必须是合约 |
+| `independentLeverage` | `string` | 否 | 单腿合约杠杆倍数，正整数字符串 |
 | `buyEx` | `string` | 是 | 买入交易所 |
 | `sellEx` | `string` | 是 | 卖出交易所 |
+| `aMarketSymbol` | `string` | 否 | A 腿实际交割合约 symbol，例如 `BTCUSDT_260925`；OKX U 本位交割格式如 `ETH-USD_UM-261225`；仅合约腿可用，创建后不可修改 |
+| `bMarketSymbol` | `string` | 否 | B 腿实际交割合约 symbol；支持 Binance、Bybit、OKX、Gate（Bitget 无 U 本位交割，不支持） |
 | `startTime` | `string` | 否 | 启动时间 |
 | `minNotional` | `string` | 否 | 最小名义价值，若传则要求 `>= 6` |
 | `maxNotional` | `string` | 否 | 最大名义价值，若传则要求 `>= minNotional` |
@@ -241,6 +250,8 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 | `adjustParams` | `object` | 否 | 动态调整参数 |
 | `usdcNoTrade` | `boolean` | 否 | 部分类型可用 |
 | `spotMarginType` | `string` | 否 | `FS` 类型可传：`spot`、`cross`、`isolated` |
+
+更新已启用独立杠杆的卡片时，SDK 必须继续携带这两个字段；同时省略表示关闭并清除独立杠杆。
 
 说明：
 
@@ -254,6 +265,8 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 ### 6.1 查询列表
 
 用于获取当前所有 `pair` 配置。
+
+列表保留策略配置顺序，单张新增的卡片排在列表开头。
 
 请求体：
 
@@ -293,6 +306,8 @@ function signRequest(apiKey, nonce, timestamp, apiPath, rawBody) {
 ### 6.2 新增 Pair
 
 用于新增一个新的 `pair` 配置。注意新增pair会导致astro-core进程重启，因此此动作完成后需要等待3秒再执行其他动作。
+
+新增成功后，页面将卡片显示在所有非置顶卡片的最前面，已有置顶卡片仍优先显示。
 
 请求体示例：
 
@@ -475,15 +490,87 @@ Notice 请求体示例：
 }
 ```
 
+### 6.6 查询利润
+
+请求：`POST /xxx/api/config/sdk-get-profit`。复用后台 `GET /xxx/api/config/get-profit?pageSize=200&page=1&year=2026&month=10` 的查询能力和返回格式，SDK 使用 JSON 请求体及第 3 节的签名方式。
+
+请求体示例：
+
+```json
+{
+  "pageSize": 200,
+  "page": 1,
+  "year": 2026,
+  "month": 10
+}
+```
+
+所有参数均可省略，使用默认值时仍需发送 JSON 请求体 `{}` 并对其签名。
+
+| 参数 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `page` | `number` | `1` | 页码，从 1 开始；无效值或小于 1 时使用默认值 |
+| `pageSize` | `number` | `20` | 每页数量，最大 1000，超过时按 1000 处理；无效值或小于 1 时使用默认值 |
+| `year` | `number` | UTC+8 当前年份 | 查询年份 |
+| `month` | `number` | UTC+8 当前月份 | 查询月份，1–12 |
+| `day` | `number` | `0` | 0 表示整月；1–31 表示指定日期，须与年月对应 |
+| `sortBy` | `string` | 不传 | 仅支持 `profit`；默认按结算时间倒序 |
+| `sortOrder` | `string` | 不传 | `asc` 或 `desc`；仅与 `sortBy: "profit"` 同时传入有效值时按利润金额排序 |
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "data": {
+    "todayProfit": 12.5,
+    "todayProfitModify": 0,
+    "monthlyProfit": 120,
+    "monthlyProfitModify": 5,
+    "totalProfit": 1000,
+    "totalProfitModify": 20,
+    "total": 1,
+    "pageSize": 200,
+    "page": 1,
+    "data": [
+      {
+        "coinName": "ETH",
+        "type": 0,
+        "exchangeA": "binance",
+        "exchangeB": "okx",
+        "profit": 12.5,
+        "remark": "",
+        "startTime": 1790985600000,
+        "time": 1790989200000
+      }
+    ]
+  }
+}
+```
+
+返回字段说明：
+
+- `todayProfit`：UTC+8 今日利润；传入 `day` 时为指定日期利润。
+- `monthlyProfit`：所选年月利润；`totalProfit`：全部历史累计利润，均不受分页影响。
+- `todayProfitModify`、`monthlyProfitModify`、`totalProfitModify`：对应范围内的手动调整金额，已包含在对应利润汇总中，无需再相加。
+- `total`：所选月份或日期的明细总数；`page`、`pageSize`：实际使用的分页参数；`data`：当前页明细。
+- 明细 `type`：`0=SF`、`1=FF`、`2=SR`、`3=FR`、`4=FS`、`5=SS`、`100/101=A/B 边费率盈亏`、`200=手动调整`。
+- `exchangeA`、`exchangeB`：交易所名称；`profit`：该条记录利润；`remark`：备注。
+- `startTime`：第一笔已成交开仓订单的提交时间，仅有有效值时返回；`time`：利润结算时间，均为毫秒时间戳。
+- `id`：仅手动调整记录（`type=200`）返回。
+
+需要 astro-core 处于运行并连接状态；未连接时返回 HTTP `400`、`message: "请点击「启动」按钮!"`，等待 core 响应超过 5 秒时返回 HTTP `400` 超时错误。本接口复用现有 core 协议，无需修改 astro-core。
+
 ## 7. 常见错误码与状态
 
 | HTTP 状态 | 业务码 | 场景 |
 | --- | --- | --- |
 | `200` | `0` | 请求成功 |
-| `400` | `-1` | 参数错误、字段校验失败、ID 不合法 |
+| `400` | `-1` | 参数错误、字段校验失败、ID 不合法、利润查询时 core 未连接或超时 |
 | `401` | `-1` | 缺少鉴权头、时间戳错误、签名错误、API Key 未配置 |
 | `409` | `-1` | `nonce` 重复，触发重放保护 |
 | `429` | `-1` | 触发限频：`20次/10s` |
+| `500` | `-1` | 利润查询失败或 core 返回无效数据 |
 
 ## 8. 推荐调用顺序
 
@@ -495,3 +582,4 @@ Notice 请求体示例：
 4. 调用 `update` 更新该 `pair`
 5. 调用 `delete` 删除该 `pair`
 6. 如需推送消息，调用 `sdk-send-message` 发送 `warning` 或 `notice`
+7. 如需查询利润，调用 `sdk-get-profit` 获取汇总和分页明细
