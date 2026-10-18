@@ -15,6 +15,8 @@
 - Pair 管理接口：`/xxx/api/config/sdk-update-pair`
 - Message 发送接口：`/xxx/api/config/sdk-send-message`
 - Profit 查询接口：`/xxx/api/config/sdk-get-profit`
+- astro-core 运行状态：`/xxx/api/config/sdk-get-status`
+- astro-core 启动 / 重启 / 停止：`/xxx/api/config/sdk-start`、`/xxx/api/config/sdk-restart`、`/xxx/api/config/sdk-stop`
 - Pair 接口示例完整地址：`https://127.0.0.1:12345/xxx/api/config/sdk-update-pair`
 - Message 接口示例完整地址：`https://127.0.0.1:12345/xxx/api/config/sdk-send-message`
 - Profit 接口示例完整地址：`https://127.0.0.1:12345/xxx/api/config/sdk-get-profit`
@@ -30,6 +32,7 @@
 - `add`、`update`、`delete` 需要传 `pair` 对象。
 - `sdk-send-message` 用于发送文本消息，通过请求体中的 `type` 区分 `warning` 和 `notice`。
 - `sdk-get-profit` 用于查询利润汇总和分页明细，查询参数放在 JSON 请求体中，不需要 `action`。
+- `sdk-get-status`、`sdk-start`、`sdk-restart`、`sdk-stop` 均发送 JSON 请求体 `{}`，并按第 3 节对实际请求路径和请求体签名。
 - SDK 接口使用下述 API Key 签名，无需登录 Cookie、CSRF 或设备证明。
 
 ## 2. 访问限制
@@ -561,16 +564,47 @@ Notice 请求体示例：
 
 需要 astro-core 处于运行并连接状态；未连接时返回 HTTP `400`、`message: "请点击「启动」按钮!"`，等待 core 响应超过 5 秒时返回 HTTP `400` 超时错误。本接口复用现有 core 协议，无需修改 astro-core。
 
+### 6.7 查询 astro-core 运行状态
+
+请求：`POST /xxx/api/config/sdk-get-status`，请求体为 `{}`。
+
+成功响应示例：
+
+```json
+{
+  "code": 0,
+  "data": {
+    "status": 1
+  }
+}
+```
+
+`status` 与 config 根接口一致：PM2 状态为 `online` 时返回 `1`，其他状态或进程尚未注册时返回 `0`。本接口直接查询 PM2，无需 astro-core 建立连接。
+
+### 6.8 启动、重启、停止 astro-core
+
+以下接口均使用 `POST`，请求体为 `{}`，鉴权和限流与其他 SDK 接口相同。
+
+| 接口 | 说明 |
+| --- | --- |
+| `/xxx/api/config/sdk-start` | 启动 astro-core；已在线时直接成功，`data` 为 `"already running"` |
+| `/xxx/api/config/sdk-restart` | 重启已注册的 astro-core 进程 |
+| `/xxx/api/config/sdk-stop` | 停止 astro-core |
+
+成功响应：`{"code":0,"data":null}`。操作逻辑复用后台 `/start`、`/restart`、`/stop`；首次尚未注册进程时使用 `sdk-start`。启动或重启成功表示 PM2 操作完成，业务连接就绪仍需等待。
+
+以上进程接口发生 PM2 异常时返回 HTTP `500` 和 JSON `{"code":-1,"message":"错误信息"}`；其中 `sdk-start` 在实际启动失败时仍返回 HTTP `400` 和 `message: "start process failed, please check!"`。
+
 ## 7. 常见错误码与状态
 
 | HTTP 状态 | 业务码 | 场景 |
 | --- | --- | --- |
 | `200` | `0` | 请求成功 |
-| `400` | `-1` | 参数错误、字段校验失败、ID 不合法、利润查询时 core 未连接或超时 |
+| `400` | `-1` | 参数错误、字段校验失败、ID 不合法、利润查询时 core 未连接或超时、进程启动失败或重启结果中未找到 astro-core |
 | `401` | `-1` | 缺少鉴权头、时间戳错误、签名错误、API Key 未配置 |
 | `409` | `-1` | `nonce` 重复，触发重放保护 |
 | `429` | `-1` | 触发限频：`20次/10s` |
-| `500` | `-1` | 利润查询失败或 core 返回无效数据 |
+| `500` | `-1` | 利润查询失败、core 返回无效数据或进程接口发生 PM2 异常 |
 
 ## 8. 推荐调用顺序
 
