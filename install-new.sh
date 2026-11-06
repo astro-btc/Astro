@@ -444,6 +444,7 @@ EOF
     log_info "启动Astro容器..."
     docker run -d \
         --name astro-app \
+        --init \
         --restart always \
         --log-driver json-file \
         --log-opt max-size=20m \
